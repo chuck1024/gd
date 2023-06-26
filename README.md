@@ -2,7 +2,7 @@
 
 [![GoDoc](https://pkg.go.dev/badge/github.com/chuck1024/gd?status.svg)](https://pkg.go.dev/github.com/chuck1024/gd@v1.7.17?tab=doc)
 [![Go Report Card](https://goreportcard.com/badge/github.com/chuck1024/gd)](https://goreportcard.com/report/github.com/chuck1024/gd)
-[![Release](https://img.shields.io/github/v/release/chuck1024/gd.svg?style=flat-square)](https://github.com/chuck1024/gd/tags)
+[![Release](https://img.shields.io/github/v/release/chuck1024/gd.svg?style=flat-square)](https://github.com/chuck1024/gd/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)]()
 
 "go" is the meaning of a dog in Chinese pronunciation, and dog's original intention is also a dog. So godog means "狗狗"
