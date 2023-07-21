@@ -37,5 +37,6 @@ func (e *Engine) Signal() {
 }
 
 func Close() {
-	running <- true
+	<- running
+	close(running)
 }
