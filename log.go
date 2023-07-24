@@ -70,7 +70,7 @@ func (g *gdConfig) initLogConfig() error {
 	stdout := dlog.XmlFilter{
 		Enabled: g.Stdout,
 		Tag:     "stdout",
-		Level:   "INFO",
+		Level:   g.LogLevel,
 		Type:    "console",
 		Property: []dlog.XmlProperty{
 			dlog.XmlProperty{Name: "format", Value: g.Format},

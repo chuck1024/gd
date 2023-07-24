@@ -58,7 +58,7 @@ func initLog() {
 		log := &gdConfig{
 			BinName:    Config("Server", "serverName").String(),
 			Port:       port,
-			LogLevel:   Config("Log", "level").MustString(defaultFormat),
+			LogLevel:   Config("Log", "level").MustString(defaultLogLevel),
 			LogDir:     Config("Log", "logDir").String(),
 			Stdout:     Config("Log", "stdout").MustString("true"),
 			Format:     Config("Log", "format").MustString(defaultFormat),
