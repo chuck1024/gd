@@ -7,7 +7,6 @@ package gl
 
 const (
 	ClientIp    = "glClientIp"
-	ClientXffIp = "glClientXffIp"
 	Tag         = "glTag"
 	LogId       = "glLogId"
 	Url         = "glUrl"

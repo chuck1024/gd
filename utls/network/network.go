@@ -25,6 +25,14 @@ func IsLocalIP(request *http.Request) (bool, error) {
 func GetRealIP(request *http.Request) (string, error) {
 	var ip string
 
+	// Nginx 中有的remoteAddr存为了"X-Real-IP"
+	if len(ip) == 0 && len(request.Header.Get("X-Real-IP")) > 0 {
+		xRealIP := request.Header.Get("X-Real-IP")
+		if len(xRealIP) > 0 && net.ParseIP(xRealIP) != nil {
+			ip = xRealIP
+		}
+	}
+
 	if len(request.Header.Get("X-Forwarded-For")) > 0 {
 		// Reference: http://en.wikipedia.org/wiki/X-Forwarded-For#Format
 		xForwardedFor := strings.Split(request.Header.Get("X-Forwarded-For"), ", ")
@@ -33,13 +41,6 @@ func GetRealIP(request *http.Request) (string, error) {
 		}
 	}
 
-	// Nginx 中有的remoteAddr存为了"X-Real-IP"
-	if len(ip) == 0 && len(request.Header.Get("X-Real-IP")) > 0 {
-		xRealIP := request.Header.Get("X-Real-IP")
-		if len(xRealIP) > 0 && net.ParseIP(xRealIP) != nil {
-			ip = xRealIP
-		}
-	}
 	if len(ip) == 0 && len(request.RemoteAddr) > 0 {
 		remoteAddr := strings.Split(request.RemoteAddr, ":")
 		if len(remoteAddr) == 2 && net.ParseIP(remoteAddr[0]) != nil {
