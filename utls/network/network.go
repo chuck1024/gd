@@ -26,14 +26,14 @@ func GetRealIP(request *http.Request) (string, error) {
 	var ip string
 
 	// Nginx 中有的remoteAddr存为了"X-Real-IP"
-	if len(ip) == 0 && len(request.Header.Get("X-Real-IP")) > 0 {
+	if len(request.Header.Get("X-Real-IP")) > 0 {
 		xRealIP := request.Header.Get("X-Real-IP")
 		if len(xRealIP) > 0 && net.ParseIP(xRealIP) != nil {
 			ip = xRealIP
 		}
 	}
 
-	if len(request.Header.Get("X-Forwarded-For")) > 0 {
+	if len(ip) == 0 && len(request.Header.Get("X-Forwarded-For")) > 0 {
 		// Reference: http://en.wikipedia.org/wiki/X-Forwarded-For#Format
 		xForwardedFor := strings.Split(request.Header.Get("X-Forwarded-For"), ", ")
 		if len(xForwardedFor) > 0 && net.ParseIP(xForwardedFor[0]) != nil {
