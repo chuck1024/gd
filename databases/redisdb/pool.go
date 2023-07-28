@@ -420,7 +420,12 @@ func (p *RedisPoolClient) getConn(usedIps []string) (redis.Conn, string, error) 
 		conn := p.redisPool.p[server].Get()
 		return conn, server, nil
 	}
-	return nil, "", nil
+
+	idx := rand.Int31n(int32(len(p.redisPool.servers)))
+	server := p.redisPool.servers[idx]
+	conn := p.redisPool.p[server].Get()
+
+	return conn, server, nil
 }
 
 /*
