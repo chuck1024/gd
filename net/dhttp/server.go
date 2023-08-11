@@ -179,17 +179,33 @@ func (h *HttpServer) DELETE(group *gin.RouterGroup, relativePath string, handler
 func (h *HttpServer) PATCH(group *gin.RouterGroup, relativePath string, handler interface{}) {
 	h.addHandler(relativePath, handler)
 	ginHandler := Wrap(handler)
-	group.DELETE(relativePath, ginHandler)
+	group.PATCH(relativePath, ginHandler)
 }
 
 func (h *HttpServer) PUT(group *gin.RouterGroup, relativePath string, handler interface{}) {
 	h.addHandler(relativePath, handler)
 	ginHandler := Wrap(handler)
-	group.DELETE(relativePath, ginHandler)
+	group.PUT(relativePath, ginHandler)
 }
 
 func (h *HttpServer) OPTIONS(group *gin.RouterGroup, relativePath string, handler interface{}) {
 	h.addHandler(relativePath, handler)
 	ginHandler := Wrap(handler)
-	group.DELETE(relativePath, ginHandler)
+	group.OPTIONS(relativePath, ginHandler)
+}
+
+func (h *HttpServer) Static(group *gin.RouterGroup, relativePath string, path string) {
+	group.Static(relativePath, path)
+}
+
+func (h *HttpServer) StaticFS(group *gin.RouterGroup, relativePath string, fs http.FileSystem) {
+	group.StaticFS(relativePath, fs)
+}
+
+func (h *HttpServer) StaticFile(group *gin.RouterGroup, relativePath, filepath string) {
+	group.StaticFile(relativePath, filepath)
+}
+
+func (h *HttpServer) StaticFileFS(group *gin.RouterGroup, relativePath, filepath string, fs http.FileSystem) {
+	group.StaticFileFS(relativePath, filepath, fs)
 }

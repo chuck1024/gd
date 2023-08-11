@@ -13,6 +13,7 @@ import (
 	log "github.com/chuck1024/gd/dlog"
 	"github.com/chuck1024/gd/runtime/gl"
 	"github.com/chuck1024/gd/runtime/pc"
+	"github.com/jmoiron/sqlx"
 	"reflect"
 	"strconv"
 	"strings"
@@ -50,21 +51,21 @@ type DbWrap struct {
 	Timeout     time.Duration
 	mysqlClient *MysqlClient
 	host        string
-	*sql.DB
+	*sqlx.DB
 	glSuffix string
 
 	retry int
 }
 
-func NewDbWrapped(host string, db *sql.DB, mysqlClient *MysqlClient, timeout time.Duration) *DbWrap {
+func NewDbWrapped(host string, db *sqlx.DB, mysqlClient *MysqlClient, timeout time.Duration) *DbWrap {
 	return NewDbWrappedRetry(host, db, mysqlClient, timeout, defaultDbRetry)
 }
 
-func NewDbWrappedRetry(host string, db *sql.DB, mysqlClient *MysqlClient, timeout time.Duration, retry int) *DbWrap {
+func NewDbWrappedRetry(host string, db *sqlx.DB, mysqlClient *MysqlClient, timeout time.Duration, retry int) *DbWrap {
 	return NewDbWrappedRetryProxy(host, db, mysqlClient, timeout, retry, false)
 }
 
-func NewDbWrappedRetryProxy(host string, db *sql.DB, mysqlClient *MysqlClient, timeout time.Duration, retry int, proxy bool) *DbWrap {
+func NewDbWrappedRetryProxy(host string, db *sqlx.DB, mysqlClient *MysqlClient, timeout time.Duration, retry int, proxy bool) *DbWrap {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}

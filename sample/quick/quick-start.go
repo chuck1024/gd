@@ -30,6 +30,7 @@ func main() {
 		)
 
 		d.HttpServer.GET(r, "test", HandlerHttp)
+		d.HttpServer.Static(r, "/f/:name", "/var/www")
 
 		if err := d.HttpServer.CheckHandle(); err != nil {
 			return err

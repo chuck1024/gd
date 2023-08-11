@@ -13,6 +13,7 @@ import (
 	"github.com/chuck1024/gd"
 	log "github.com/chuck1024/gd/dlog"
 	"github.com/chuck1024/gd/runtime/pc"
+	"github.com/jmoiron/sqlx"
 	"gopkg.in/ini.v1"
 	"math/rand"
 	"reflect"
@@ -37,8 +38,10 @@ type MysqlClient struct {
 	DbConfPath string        `inject:"mysqlDbConfPath" canNil:"true"`
 	DataBase   string        `inject:"mysqlDatabase" canNil:"true"`
 
-	dbWrite []*DbWrap
-	dbRead  []*DbWrap
+	dbWrite           []*DbWrap
+	dbRead            []*DbWrap
+	readLoadBalancer  DBLoadBalancer
+	writeLoadBalancer DBLoadBalancer
 
 	startOnce sync.Once
 	closeOnce sync.Once
@@ -71,8 +74,24 @@ func (c *MysqlClient) Close() {
 	})
 }
 
+func (c *MysqlClient) SetReadLoadBalancer(l DBLoadBalancer) {
+	c.readLoadBalancer = l
+}
+
+func (c *MysqlClient) SetWriteLoadBalancer(l DBLoadBalancer) {
+	c.writeLoadBalancer = l
+}
+
 func (c *MysqlClient) getReadDbs() []*DbWrap {
 	return c.dbRead
+}
+
+func (c *MysqlClient) GetReadDbs() []*DbWrap {
+	return c.dbRead
+}
+
+func (c *MysqlClient) getReadDb() (*DbWrap, error) {
+	return c.readLoadBalancer(c.dbRead)
 }
 
 func (c *MysqlClient) GetReadDbRandom() (*DbWrap, error) {
@@ -139,7 +158,7 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 
 	var dbWrites []*DbWrap
 	for _, connMaster := range connMasters {
-		db, err := sql.Open(dbType, connMaster)
+		db, err := sqlx.Open(dbType, connMaster)
 		if err != nil {
 			return err
 		}
@@ -163,7 +182,7 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 
 	dbRead := make([]*DbWrap, len(connSlaves))
 	for idx, rs := range connSlaves {
-		d, err := sql.Open(dbType, rs)
+		d, err := sqlx.Open(dbType, rs)
 		if err != nil {
 			return err
 		}
@@ -178,7 +197,8 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 		dbRead[idx] = dbr
 	}
 	c.dbRead = dbWrites
-
+	c.writeLoadBalancer = DefaultWriteLoadBalancer
+	c.readLoadBalancer = DefaultReadLoadBalancer
 	return nil
 }
 
@@ -987,4 +1007,20 @@ func (c *MysqlClient) ExecTransaction(transactionExec TransactionExec) (int64, e
 	}
 
 	return rowsAffected, nil
+}
+
+func (c *MysqlClient) Select(dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.Select(dst, query, args...)
+}
+
+func (c *MysqlClient) Get(dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.DB.Get(dst, query, args...)
 }
