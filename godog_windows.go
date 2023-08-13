@@ -1,4 +1,5 @@
-// +build !windows
+//go:build windows
+// +build windows
 
 /**
  * Copyright 2018 gd Author. All Rights Reserved.
@@ -22,7 +23,6 @@ import (
 	"google.golang.org/grpc"
 	"os"
 	"runtime"
-	"syscall"
 	"time"
 )
 
@@ -205,25 +205,25 @@ func (e *Engine) initCPUAndMemory() error {
 	}
 	runtime.GOMAXPROCS(maxCPU)
 
-	if Config("Process", "maxMemory").String() != "" {
-		maxMemory, err := utls.ParseMemorySize(Config("Process", "maxMemory").String())
-		if err != nil {
-			Crash(fmt.Sprintf("conf field illgeal, max_memory:%s, error:%s", Config("Process", "maxMemory").String(), err.Error()))
-		}
-
-		var rlimit syscall.Rlimit
-		syscall.Getrlimit(syscall.RLIMIT_AS, &rlimit)
-		Info("old rlimit mem:%v", rlimit)
-		rlimit.Cur = uint64(maxMemory)
-		rlimit.Max = uint64(maxMemory)
-		err = syscall.Setrlimit(syscall.RLIMIT_AS, &rlimit)
-		if err != nil {
-			Crash(fmt.Sprintf("syscall Setrlimit fail, rlimit:%v, error:%s", rlimit, err.Error()))
-		} else {
-			syscall.Getrlimit(syscall.RLIMIT_AS, &rlimit)
-			Info("new rlimit mem:%v", rlimit)
-		}
-	}
+	//if Config("Process", "maxMemory").String() != "" {
+	//	maxMemory, err := utls.ParseMemorySize(Config("Process", "maxMemory").String())
+	//	if err != nil {
+	//		Crash(fmt.Sprintf("conf field illgeal, max_memory:%s, error:%s", Config("Process", "maxMemory").String(), err.Error()))
+	//	}
+	//
+	//var rlimit syscall.Rlimit
+	//syscall.Getrlimit(syscall.RLIMIT_AS, &rlimit)
+	//Info("old rlimit mem:%v", rlimit)
+	//rlimit.Cur = uint64(maxMemory)
+	//rlimit.Max = uint64(maxMemory)
+	//err = syscall.Setrlimit(syscall.RLIMIT_AS, &rlimit)
+	//if err != nil {
+	//	Crash(fmt.Sprintf("syscall Setrlimit fail, rlimit:%v, error:%s", rlimit, err.Error()))
+	//} else {
+	//	syscall.Getrlimit(syscall.RLIMIT_AS, &rlimit)
+	//	Info("new rlimit mem:%v", rlimit)
+	//}
+	//}
 
 	return nil
 }

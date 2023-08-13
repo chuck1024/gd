@@ -323,11 +323,16 @@ func (db *DbWrap) Close() error {
 	return db.DB.Close()
 }
 
+func (db *DbWrap) GetSqlxCon() *sqlx.DB {
+	return db.DB
+}
+
 // Row is the result of calling QueryRow to select a single row.
 type Row struct {
 	// One of these two will be non-nil:
-	err  error // deferred error for easy chaining
-	rows *sql.Rows
+	err     error // deferred error for easy chaining
+	rows    *sql.Rows
+	lookTag string
 }
 
 // Scan copies the columns from the matched row into the values
