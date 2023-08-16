@@ -1,5 +1,4 @@
-//go:build !windows
-// +build !windows
+//go:build windows
 
 /**
  * Copyright 2018 gd Author. All Rights Reserved.
@@ -21,7 +20,7 @@ var (
 )
 
 func init() {
-	signal.Notify(shutdown, syscall.SIGINT, os.Interrupt, os.Kill, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGUSR2)
+	signal.Notify(shutdown, syscall.SIGINT, os.Interrupt, os.Kill, syscall.SIGTERM, syscall.SIGQUIT)
 	signal.Notify(hup, syscall.SIGHUP)
 }
 

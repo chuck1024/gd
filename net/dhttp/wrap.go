@@ -50,8 +50,20 @@ func CheckWrap(toWrap interface{}) error {
 func Wrap(toWrap interface{}) gin.HandlerFunc {
 	refToWrap := reflect.ValueOf(toWrap)
 	wt := reflect.TypeOf(toWrap)
+	if wt.Kind() != reflect.Func {
+		dlog.Crashf("the handler is not func:%v", toWrap)
+	}
 	wtNumIn := wt.NumIn()
 	inType := wt.In(1)
+	//inParamsTypeList := make([]reflect.Kind, wtNumIn)
+	//inParamsValueList := make([]reflect.Value, wtNumIn)
+	//for i := 0; i < wtNumIn; i++ {
+	//	inParamsTypeList[i] = wt.In(i).Kind()
+	//	inParamsValueList[i] = reflect.New(wt.In(i))
+	//	if wt.In(i).Kind() == reflect.Ptr {
+	//		inParamsValueList[i] = reflect.New(wt.In(i).Elem())
+	//	}
+	//}
 
 	wrapped := func(c *gin.Context) {
 		var inVal reflect.Value
@@ -67,16 +79,17 @@ func Wrap(toWrap interface{}) gin.HandlerFunc {
 		// data_raw is possible to encrypt data
 		dataBtsObj, ok := c.Get(DataRaw)
 		if !ok {
-			if c.Request.Method == "GET" {
+			if c.Request.Method == http.MethodGet {
 				// TODO fix
 				c.Bind(inValInterface)
 				c.Set(Data, inValInterface)
+				dlog.WarnT("http %s shouldn't include body", http.MethodGet)
 			} else {
 				err := c.Bind(inValInterface)
 				if err != nil {
 					var body []byte
 					var readBodyErr error
-					if c.Request.Method == "POST" {
+					if c.Request.Method == http.MethodPost {
 						body, readBodyErr = ioutil.ReadAll(c.Request.Body)
 					} else {
 						body = []byte(c.Request.RequestURI)
@@ -117,8 +130,10 @@ func Wrap(toWrap interface{}) gin.HandlerFunc {
 		in[0] = reflect.ValueOf(c)
 		in[1] = inVal
 		out := refToWrap.Call(in)
+		//out := refToWrap.Call(inParamsValueList)
 		if len(out) != 4 {
-			dlog.Error("wrap return not 4!in=%v,out=%v,func=%v", in, out, toWrap)
+			//dlog.Error("wrap return not 4!in=%v,out=%v,func=%v", in, out, toWrap)
+			dlog.Error("wrap return not 4!out=%v,func=%v", out, toWrap)
 			Return(c, http.StatusInternalServerError, "ret not 4!", nil, nil)
 			return
 		}
@@ -129,6 +144,34 @@ func Wrap(toWrap interface{}) gin.HandlerFunc {
 			err     error
 			ret     interface{}
 		)
+
+		//for _, value := range out {
+		//AGAIN:
+		//	switch value.Kind() {
+		//	case reflect.Int:
+		//		code = int(value.Int())
+		//	case reflect.String:
+		//		message = value.String()
+		//	case reflect.Interface:
+		//		if value.Kind() == reflect.Ptr {
+		//			value = value.Elem()
+		//			goto AGAIN
+		//		}
+		//		if value.CanInterface() {
+		//			if v, ok := value.Interface().(error); ok {
+		//				err = v
+		//			} else {
+		//				ret = value.Interface()
+		//			}
+		//		}
+		//	}
+		//}
+		//
+		//if code != 0 {
+		//	//dlog.Debug("wrap wrapped call,in=%v,out=%v,func=%v", in, out, toWrap)
+		//	dlog.Debug("wrap wrapped call,out=%v,func=%v", out, toWrap)
+		//	Return(c, code, message, err, ret)
+		//}
 
 		if out[0].CanInterface() {
 			code, _ = out[0].Interface().(int)

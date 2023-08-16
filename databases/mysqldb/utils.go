@@ -426,8 +426,19 @@ func MysqlEscapeString(source string) string {
 	return string(desc[0:j])
 }
 
-func GetDataStructFields(data interface{}) ([]string, error) {
-	typeOf := reflect.TypeOf(data).Elem()
+func GetDataStructFields(data interface{}, tagName string) ([]string, error) {
+	if tagName == "" {
+		return nil, fmt.Errorf("tagName is empty")
+	}
+	t := reflect.TypeOf(data)
+	var typeOf reflect.Type
+	if t.Kind() == reflect.Struct {
+		typeOf = reflect.TypeOf(data)
+	} else if t.Elem().Kind() == reflect.Struct {
+		typeOf = reflect.TypeOf(data).Elem()
+	} else {
+		return nil, fmt.Errorf("data must struct or struct ptr")
+	}
 	numField := typeOf.NumField()
 	fieldSlice := make([]string, 0, numField)
 	for i := 0; i < numField; i++ {
@@ -435,9 +446,9 @@ func GetDataStructFields(data interface{}) ([]string, error) {
 		if len(tField.PkgPath) > 0 {
 			return nil, fmt.Errorf("field %s is not public", tField.Name)
 		}
-		mysqlFieldName := tField.Tag.Get("mysqlField")
+		mysqlFieldName := tField.Tag.Get(tagName)
 		if len(mysqlFieldName) == 0 {
-			return nil, fmt.Errorf("field %s has no mysqlField tag", tField.Name)
+			return nil, fmt.Errorf("field %s has no %s tag", tField.Name, tagName)
 		}
 		fieldSlice = append(fieldSlice, "`"+mysqlFieldName+"`")
 	}
@@ -454,7 +465,7 @@ func GetDataStructValues(data interface{}) []driver.Value {
 	return valueSlice
 }
 
-func GetDataStructDests(data interface{}, dbType string) ([]interface{}, map[int]int, error) {
+func GetDataStructDests(data interface{}, dbType string, tagName string) ([]interface{}, map[int]int, error) {
 	typeOf := reflect.TypeOf(data).Elem()
 	valueOf := reflect.ValueOf(data).Elem()
 	numField := valueOf.NumField()
@@ -465,9 +476,9 @@ func GetDataStructDests(data interface{}, dbType string) ([]interface{}, map[int
 		if len(tField.PkgPath) > 0 {
 			return nil, nil, fmt.Errorf("field %s is not public", tField.Name)
 		}
-		mysqlFieldName := tField.Tag.Get("mysqlField")
+		mysqlFieldName := tField.Tag.Get(tagName)
 		if len(mysqlFieldName) == 0 {
-			return nil, nil, fmt.Errorf("field %s has no mysqlField tag", tField.Name)
+			return nil, nil, fmt.Errorf("field %s has no %s tag", tField.Name, tagName)
 		}
 
 		if dbType == dmDataBaseType && tField.Tag.Get("dataType") == "clob" {
@@ -482,4 +493,13 @@ func GetDataStructDests(data interface{}, dbType string) ([]interface{}, map[int
 		}
 	}
 	return dests, indexs, nil
+}
+
+func CheckDataIsStructOrStructPtr(data interface{}) bool {
+	t := reflect.TypeOf(data)
+	if t.Kind() == reflect.Struct || t.Elem().Kind() == reflect.Struct {
+		return true
+	} else {
+		return false
+	}
 }

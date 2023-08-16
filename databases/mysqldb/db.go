@@ -6,6 +6,7 @@
 package mysqldb
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/chuck1024/gd"
 	log "github.com/chuck1024/gd/dlog"
 	"github.com/chuck1024/gd/runtime/pc"
+	"github.com/jmoiron/sqlx"
 	"gopkg.in/ini.v1"
 	"math/rand"
 	"reflect"
@@ -37,14 +39,22 @@ type MysqlClient struct {
 	DbConfPath string        `inject:"mysqlDbConfPath" canNil:"true"`
 	DataBase   string        `inject:"mysqlDatabase" canNil:"true"`
 
-	dbWrite []*DbWrap
-	dbRead  []*DbWrap
+	dbWrite           []*DbWrap
+	dbRead            []*DbWrap
+	ReadLoadBalancer  DBLoadBalancer
+	WriteLoadBalancer DBLoadBalancer
 
 	startOnce sync.Once
 	closeOnce sync.Once
 
 	// 数据库类型指定 dm mysql 缺省：mysql
 	DbType string
+
+	// 重试次数，默认为 0
+	RetryTimes int
+
+	// 检查的结构体标签，默认为 mysqlField
+	LookTag string
 }
 
 func (c *MysqlClient) Start() error {
@@ -71,8 +81,44 @@ func (c *MysqlClient) Close() {
 	})
 }
 
+func (c *MysqlClient) SetReadLoadBalancer(l DBLoadBalancer) {
+	c.ReadLoadBalancer = l
+}
+
+func (c *MysqlClient) SetWriteLoadBalancer(l DBLoadBalancer) {
+	c.WriteLoadBalancer = l
+}
+
 func (c *MysqlClient) getReadDbs() []*DbWrap {
 	return c.dbRead
+}
+
+func (c *MysqlClient) GetReadDbs() []*DbWrap {
+	return c.dbRead
+}
+
+func (c *MysqlClient) getReadDb() (*DbWrap, error) {
+	return c.ReadLoadBalancer(c.dbRead)
+}
+
+func (c *MysqlClient) getWriteDb() (*DbWrap, error) {
+	return c.WriteLoadBalancer(c.dbWrite)
+}
+
+func (c *MysqlClient) GetWriteDbList() []*DbWrap {
+	return c.dbWrite
+}
+
+func (c *MysqlClient) GetReadDbList() []*DbWrap {
+	return c.dbRead
+}
+
+func (c *MysqlClient) GetLBWriteDb() (*DbWrap, error) {
+	return c.WriteLoadBalancer(c.dbWrite)
+}
+
+func (c *MysqlClient) GetLBReadDb() (*DbWrap, error) {
+	return c.ReadLoadBalancer(c.dbRead)
 }
 
 func (c *MysqlClient) GetReadDbRandom() (*DbWrap, error) {
@@ -137,9 +183,16 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 		return fmt.Errorf("masters empty,master=%v,slave=%v", connMasters, connSlaves)
 	}
 
+	c.WriteLoadBalancer = DefaultWriteLoadBalancer
+	c.ReadLoadBalancer = DefaultReadLoadBalancer
+
+	if c.LookTag == "" {
+		c.LookTag = "mysqlField"
+	}
+
 	var dbWrites []*DbWrap
 	for _, connMaster := range connMasters {
-		db, err := sql.Open(dbType, connMaster)
+		db, err := sqlx.Open(dbType, connMaster)
 		if err != nil {
 			return err
 		}
@@ -163,7 +216,7 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 
 	dbRead := make([]*DbWrap, len(connSlaves))
 	for idx, rs := range connSlaves {
-		d, err := sql.Open(dbType, rs)
+		d, err := sqlx.Open(dbType, rs)
 		if err != nil {
 			return err
 		}
@@ -177,8 +230,7 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 		dbr.glSuffix = glSuffix
 		dbRead[idx] = dbr
 	}
-	c.dbRead = dbWrites
-
+	c.dbRead = dbRead
 	return nil
 }
 
@@ -216,7 +268,7 @@ func (c *MysqlClient) GetCount(query string, args ...interface{}) (int64, error)
 
 	err = row.Scan(nil, &total)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
@@ -228,7 +280,7 @@ func (c *MysqlClient) GetCount(query string, args ...interface{}) (int64, error)
 func (c *MysqlClient) queryList(query string, args ...interface{}) (*sql.Rows, error) {
 	readDbs := c.getReadDbs()
 	if readDbs == nil || len(readDbs) == 0 {
-		return nil, errors.New("no available db")
+		return nil, NoAvailableDBErr
 	}
 
 	var randNums []int
@@ -266,34 +318,19 @@ func (c *MysqlClient) queryList(query string, args ...interface{}) (*sql.Rows, e
 	}
 
 	log.Warn("no available db...")
-	return nil, errors.New("no available db")
+	return nil, NoAvailableDBErr
 }
 
 func (c *MysqlClient) queryRow(query string, args ...interface{}) (*Row, error) {
 	readDbs := c.getReadDbs()
 	if readDbs == nil || len(readDbs) == 0 {
-		return nil, errors.New("no available db")
+		return nil, NoAvailableDBErr
 	}
 
-	var randNums []int
-	randNums = rand.Perm(len(readDbs))
-
-	var row *Row
-	var err error
-	var retry int
-	for _, i := range randNums {
-		readDb := readDbs[i]
-		log.Debug("MysqlClient queryRow, use db:%s", readDb.host)
-
-		row = readDb.QueryRow(query, args...)
-		err = row.err
-		if err == nil {
-			return row, err
-		}
-
-		if retry < 1 {
-			retry++
-
+	for i := 0; i < c.RetryTimes+1; i++ {
+		readDb, err := c.getReadDb()
+		if err != nil {
+			log.Debug("get read db failed:%v", err.Error())
 			if IsDbConnError(err) {
 				continue
 			} else {
@@ -305,15 +342,13 @@ func (c *MysqlClient) queryRow(query string, args ...interface{}) (*Row, error) 
 				}
 			}
 		}
-
-		return row, err
+		row := readDb.QueryRow(query, args...)
+		if row.err == nil {
+			return row, nil
+		}
 	}
 
-	return nil, fmt.Errorf("no available db,lastErr=%v", err)
-}
-
-type TableName struct {
-	TableName string `json:"table_name" mysqlField:"TABLE_NAME"`
+	return nil, NoAvailableDBErr
 }
 
 // IsExistTable DM支持该方法 判断表是否存在
@@ -347,14 +382,22 @@ func (c *MysqlClient) IsExistTable(tableName string) (bool, error) {
 
 // Query DM支持该方法 获取数据，无数据返回nil,nil.
 func (c *MysqlClient) Query(dataType interface{}, query string, args ...interface{}) (interface{}, error) {
-	fieldNames, err := GetDataStructFields(dataType)
+	fieldNames, err := GetDataStructFields(dataType, c.LookTag)
 	if err != nil {
 		return nil, err
 	}
-
-	typeOf := reflect.TypeOf(dataType).Elem()
+	t := reflect.TypeOf(dataType)
+	var typeOf reflect.Type
+	if t.Kind() == reflect.Struct {
+		typeOf = reflect.TypeOf(dataType)
+	} else if t.Elem().Kind() == reflect.Struct {
+		typeOf = reflect.TypeOf(dataType).Elem()
+	} else {
+		return nil, DataTypeErr
+	}
+	//typeOf := reflect.TypeOf(dataType).Elem()
 	dataObj := reflect.New(typeOf).Interface()
-	dests, indexMap, err := GetDataStructDests(dataObj, c.DbType)
+	dests, indexMap, err := GetDataStructDests(dataObj, c.DbType, c.LookTag)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +432,7 @@ func (c *MysqlClient) Query(dataType interface{}, query string, args ...interfac
 	if err != nil {
 		return nil, err
 	}
+	row.lookTag = c.LookTag
 	err = row.Scan(indexMap, dests...)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -401,7 +445,7 @@ func (c *MysqlClient) Query(dataType interface{}, query string, args ...interfac
 
 // QueryList DM支持该方法 获取数据列表.
 func (c *MysqlClient) QueryList(dataType interface{}, query string, args ...interface{}) ([]interface{}, error) {
-	fieldNames, err := GetDataStructFields(dataType)
+	fieldNames, err := GetDataStructFields(dataType, c.LookTag)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +453,7 @@ func (c *MysqlClient) QueryList(dataType interface{}, query string, args ...inte
 	query = strings.Replace(query, "?", strings.Join(fieldNames, ","), 1)
 	typeOf := reflect.TypeOf(dataType).Elem()
 	dataObj := reflect.New(typeOf).Interface()
-	_, indexMap, err := GetDataStructDests(dataObj, c.DbType)
+	_, indexMap, err := GetDataStructDests(dataObj, c.DbType, c.LookTag)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +493,7 @@ func (c *MysqlClient) QueryList(dataType interface{}, query string, args ...inte
 	for rows.Next() {
 		typeOf := reflect.TypeOf(dataType).Elem()
 		dataObj := reflect.New(typeOf).Interface()
-		dests, indexMap, err := GetDataStructDests(dataObj, c.DbType)
+		dests, indexMap, err := GetDataStructDests(dataObj, c.DbType, c.LookTag)
 		if err != nil {
 			return nil, err
 		}
@@ -508,7 +552,7 @@ func (c *MysqlClient) QueryList(dataType interface{}, query string, args ...inte
 // Update DM支持该方法 根据主键primaryKeys更新数据.
 func (c *MysqlClient) Update(tableName string, d interface{}, primaryKeys map[string]interface{}, fieldsToUpdate []string) error {
 	var err error
-	fieldNames, err := GetDataStructFields(d)
+	fieldNames, err := GetDataStructFields(d, c.LookTag)
 	if err != nil {
 		return err
 	}
@@ -519,7 +563,7 @@ func (c *MysqlClient) Update(tableName string, d interface{}, primaryKeys map[st
 	tableName = escapedName
 	typeOf := reflect.TypeOf(d).Elem()
 	dataObj := reflect.New(typeOf).Interface()
-	_, indexMap, err := GetDataStructDests(dataObj, c.DbType)
+	_, indexMap, err := GetDataStructDests(dataObj, c.DbType, c.LookTag)
 	if err != nil {
 		return err
 	}
@@ -546,7 +590,7 @@ func (c *MysqlClient) Update(tableName string, d interface{}, primaryKeys map[st
 	whereFields := ""
 	for i := 0; i < nf; i++ {
 		tf := tt.Field(i)
-		mysqlFieldName := tf.Tag.Get("mysqlField")
+		mysqlFieldName := tf.Tag.Get(c.LookTag)
 		if mysqlFieldName != "" {
 			if len(fieldsToUpdate) > 0 {
 				found := false
@@ -693,7 +737,10 @@ func (c *MysqlClient) addEscapeAutoIncr(tableName string, d interface{}, ondupUp
 	if c.DbType == dmDataBaseType {
 		for i := 0; i < nf; i++ {
 			tf := tt.Field(i)
-			k := tf.Tag.Get("mysqlField")
+			k := tf.Tag.Get(c.LookTag)
+			if k == "" {
+				continue
+			}
 			selectLang = append(selectLang, fmt.Sprintf("? %s", k))
 			if atuoincrkey != "" && k == atuoincrkey {
 				continue
@@ -705,7 +752,7 @@ func (c *MysqlClient) addEscapeAutoIncr(tableName string, d interface{}, ondupUp
 
 	for i := 0; i < nf; i++ {
 		tf := tt.Field(i)
-		mysqlFieldName := tf.Tag.Get("mysqlField")
+		mysqlFieldName := tf.Tag.Get(c.LookTag)
 		if mysqlFieldName != "" {
 			if atuoincrkey != "" && mysqlFieldName == atuoincrkey && c.DbType != dmDataBaseType {
 				continue
@@ -811,7 +858,7 @@ func (c *MysqlClient) InsertOrUpdateOnDup(tableName string, d interface{}, prima
 
 	for i := 0; i < nf; i++ {
 		tf := tt.Field(i)
-		mysqlFieldName := tf.Tag.Get("mysqlField")
+		mysqlFieldName := tf.Tag.Get(c.LookTag)
 		if mysqlFieldName == "" {
 			continue
 		}
@@ -862,7 +909,7 @@ func (c *MysqlClient) InsertOrUpdateOnDup(tableName string, d interface{}, prima
 			for i := 0; i < nf; i++ {
 				skipTag := false
 				tf := tt.Field(i)
-				mysqlFieldName := tf.Tag.Get("mysqlField")
+				mysqlFieldName := tf.Tag.Get(c.LookTag)
 				if mysqlFieldName == "" {
 					continue
 				}
@@ -987,4 +1034,226 @@ func (c *MysqlClient) ExecTransaction(transactionExec TransactionExec) (int64, e
 	}
 
 	return rowsAffected, nil
+}
+
+func (c *MysqlClient) Getx(dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.DB.Get(dst, query, args...)
+}
+
+func (c *MysqlClient) GetContext(ctx context.Context, dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.DB.GetContext(ctx, dst, query, args...)
+}
+
+func (c *MysqlClient) Queryx(query string, args ...interface{}) (*sql.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.Query(query, args...)
+}
+
+func (c *MysqlClient) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.QueryContext(ctx, query, args...)
+}
+
+func (c *MysqlClient) Queryxx(query string, args ...interface{}) (*sqlx.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.Queryx(query, args...)
+}
+
+func (c *MysqlClient) QueryxContext(ctx context.Context, query string, args ...interface{}) (*sqlx.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.QueryxContext(ctx, query, args...)
+}
+
+func (c *MysqlClient) QueryRow(query string, args ...interface{}) (*sql.Row, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.QueryRow(query, args...), nil
+}
+
+func (c *MysqlClient) QueryRowContext(ctx context.Context, query string, args ...interface{}) (*sql.Row, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.QueryRowContext(ctx, query, args...), nil
+}
+
+func (c *MysqlClient) QueryRowx(query string, args ...interface{}) (*sqlx.Row, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.QueryRowx(query, args...), nil
+}
+
+func (c *MysqlClient) QueryRowxContext(ctx context.Context, query string, args ...interface{}) (*sqlx.Row, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.DB.QueryRowxContext(ctx, query, args...), nil
+}
+
+func (c *MysqlClient) Selectx(dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.Select(dst, query, args...)
+}
+
+func (c *MysqlClient) SelectContext(ctx context.Context, dst interface{}, query string, args ...interface{}) error {
+	db, err := c.getReadDb()
+	if err != nil {
+		return err
+	}
+	return db.SelectContext(ctx, dst, query, args...)
+}
+
+func (c *MysqlClient) NamedExec(query string, arg interface{}) (sql.Result, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.NamedExec(query, arg)
+}
+
+func (c *MysqlClient) NamedExecContext(ctx context.Context, query string, arg interface{}) (sql.Result, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.NamedExecContext(ctx, query, arg)
+}
+
+func (c *MysqlClient) NamedQuery(query string, arg interface{}) (*sqlx.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.NamedQuery(query, arg)
+}
+
+func (c *MysqlClient) NamedQueryContext(ctx context.Context, query string, arg interface{}) (*sqlx.Rows, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, err
+	}
+	return db.NamedQueryContext(ctx, query, arg)
+}
+
+func (c *MysqlClient) BindNamed(query string, arg interface{}) (string, []interface{}, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return "", nil, err
+	}
+	return db.BindNamed(query, arg)
+}
+
+func (c *MysqlClient) BeginTxx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error) {
+	db, err := c.getWriteDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.BeginTxx(ctx, opts)
+}
+
+func (c *MysqlClient) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	db, err := c.getWriteDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.BeginTx(ctx, opts)
+}
+
+func (c *MysqlClient) Prepare(query string) (*sql.Stmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.Prepare(query)
+}
+
+func (c *MysqlClient) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.PrepareContext(ctx, query)
+}
+
+func (c *MysqlClient) Preparex(query string) (*sqlx.Stmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.Preparex(query)
+}
+
+func (c *MysqlClient) PreparexContext(ctx context.Context, query string) (*sqlx.Stmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.PreparexContext(ctx, query)
+}
+
+func (c *MysqlClient) PrepareNamed(query string) (*sqlx.NamedStmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.PrepareNamed(query)
+}
+
+func (c *MysqlClient) PrepareNamedContext(ctx context.Context, query string) (*sqlx.NamedStmt, error) {
+	db, err := c.getReadDb()
+	if err != nil {
+		return nil, NoAvailableDBErr
+	}
+	return db.DB.PrepareNamedContext(ctx, query)
+}
+
+func (c *MysqlClient) CreateTable(data interface{}) error {
+	if !CheckDataIsStructOrStructPtr(data) {
+		return DataTypeErr
+	}
+	typeOf := reflect.TypeOf(data)
+	if typeOf.Kind() == reflect.Ptr {
+		typeOf = typeOf.Elem()
+	}
+	data = reflect.New(typeOf).Interface()
+	if createInterface, ok := data.(TableCreateInterface); ok {
+		createSql := createInterface.CreateSql()
+		if createSql == "" {
+			return fmt.Errorf("createSql method return empty")
+		}
+		_, err := c.getWriteDbs().Exec(createSql)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
