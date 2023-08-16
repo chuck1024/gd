@@ -15,6 +15,7 @@ import (
 	log "github.com/chuck1024/gd/dlog"
 	"github.com/chuck1024/gd/runtime/pc"
 	"github.com/jmoiron/sqlx"
+	"github.com/jmoiron/sqlx/reflectx"
 	"gopkg.in/ini.v1"
 	"math/rand"
 	"reflect"
@@ -196,6 +197,7 @@ func (c *MysqlClient) initMainDbsMaxOpen(connMasters, connSlaves []string, maxOp
 		if err != nil {
 			return err
 		}
+		db.Mapper = reflectx.NewMapper(c.LookTag)
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
 		hst, err := getHostFromConnStr(connMaster, dbType)
