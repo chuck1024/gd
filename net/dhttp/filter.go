@@ -66,7 +66,7 @@ func Logger(pk string) gin.HandlerFunc {
 			}
 		}
 
-		realIp, _ := network.GetRealIP(c.Request)
+		realIp, _ := network.GetXFFRealIP(c.Request)
 		c.Set(RemoteIP, realIp)
 		gl.Set(gl.ClientIp, realIp)
 
