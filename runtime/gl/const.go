@@ -6,15 +6,14 @@
 package gl
 
 const (
-	ClientIp    = "glClientIp"
-	ClientXffIp = "glClientXffIp"
-	Tag         = "glTag"
-	LogId       = "glLogId"
-	Url         = "glUrl"
-	HideData    = "glHideData"
-	HideRet     = "glHideRet"
-	Server      = "glServer"
-	SecretKey   = "glSecretKey"
-	GdTokenRaw  = "gdTokenRaw"
-	GdToken     = "gdToken"
+	ClientIp   = "glClientIp"
+	Tag        = "glTag"
+	LogId      = "glLogId"
+	Url        = "glUrl"
+	HideData   = "glHideData"
+	HideRet    = "glHideRet"
+	Server     = "glServer"
+	SecretKey  = "glSecretKey"
+	GdTokenRaw = "gdTokenRaw"
+	GdToken    = "gdToken"
 )
