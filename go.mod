@@ -1,17 +1,19 @@
 module github.com/chuck1024/gd
 
-go 1.18
+go 1.23.0
+
+toolchain go1.23.10
 
 require (
 	gitee.com/chunanyong/dm v1.8.11
 	github.com/bitly/go-simplejson v0.5.0
 	github.com/facebookgo/structtag v0.0.0-20150214074306-217e25fb9691
-	github.com/garyburd/redigo v1.6.2
 	github.com/gin-gonic/gin v1.9.0
 	github.com/go-errors/errors v1.1.1
 	github.com/go-redis/redis/v8 v8.11.1
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/golang/protobuf v1.5.4
+	github.com/gomodule/redigo v1.9.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.2
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6

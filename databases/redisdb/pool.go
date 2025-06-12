@@ -13,7 +13,7 @@ import (
 	"github.com/chuck1024/gd/runtime/gr"
 	"github.com/chuck1024/gd/runtime/pc"
 	"github.com/chuck1024/gd/utls"
-	"github.com/garyburd/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"gopkg.in/ini.v1"
 	"math/rand"
 	"strings"
